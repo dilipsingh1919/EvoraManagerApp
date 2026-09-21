@@ -1,6 +1,6 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import DashboardScreen from '../screens/dashboard/DashboardScreen';
+import DashboardScreen from '../screens/auth/HomeScreen';
 import EventsScreen from '../screens/events/EventsScreen';
 import EventDetailsScreen from '../screens/events/EventDetailsScreen';
 import CreateEventScreen from '../screens/createEvent/CreateEventScreen';

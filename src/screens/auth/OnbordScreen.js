@@ -50,12 +50,12 @@ const OnboardingScreen = ({navigation}) => {
         animated: true,
       });
     } else {
-      navigation.replace('Login');
+      navigation.replace('LoginScreen');
     }
   };
 
   const skipOnboarding = () => {
-    navigation.replace('Login');
+    navigation.replace('LoginScreen');
   };
 
   // PREVIOUS

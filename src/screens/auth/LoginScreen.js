@@ -1,6 +1,7 @@
 import React, {useState} from 'react';
 
 import {
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -11,6 +12,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
+
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {COLORS} from '../../constants/colors';
 import {CONFIG} from '../../constants/config';
@@ -24,6 +27,7 @@ const LoginScreen = ({navigation}) => {
 
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   // =========================
   // EMAIL VALIDATION
@@ -37,9 +41,10 @@ const LoginScreen = ({navigation}) => {
   // LOGIN
   // =========================
 
-  const handleLogin = () => {
-    let valid = true;
+  const handleLogin = async () => {
+    if (submitting) return;
 
+    let valid = true;
     setEmailError('');
     setPasswordError('');
 
@@ -56,18 +61,108 @@ const LoginScreen = ({navigation}) => {
     if (!password) {
       setPasswordError('Password is required');
       valid = false;
-    } else if (password.length < 6) {
-      setPasswordError('Password must be at least 6 characters');
+    } else if (password.length < 8) {
+      setPasswordError('Password must be at least 8 characters');
       valid = false;
     }
 
-    if (!valid) {
-      return;
-    }
+    if (!valid) return;
 
-    // TEMPORARY LOGIN
-    // Firebase authentication will be added later.
-    navigation.replace('Dashboard');
+    setSubmitting(true);
+
+    try {
+      const url = `${CONFIG.API_BASE_URL}/auth/login`;
+      console.log('[Login] Calling:', url);
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          email: trimmedEmail,
+          password,
+        }),
+      });
+
+      console.log('[Login] Status:', response.status);
+
+      let data = null;
+      try {
+        data = await response.json();
+      } catch (parseErr) {
+        console.log('[Login] Response not JSON:', parseErr);
+      }
+
+      console.log('[Login] Response:', data);
+
+      if (!response.ok) {
+        const message =
+          data?.message ||
+          data?.error ||
+          `Login failed (${response.status})`;
+
+        setPasswordError(message);
+        Alert.alert('Login failed', message);
+        return;
+      }
+
+      // ========== EXTRACT TOKEN + USER ==========
+      const token =
+        data?.token ||
+        data?.access_token ||
+        data?.data?.token ||
+        data?.data?.access_token;
+
+      const user = data?.user || data?.data?.user;
+      const role = user?.role;
+
+      console.log('========== LOGIN DEBUG ==========');
+      console.log('FULL RESPONSE:', data);
+      console.log('USER:', user);
+      console.log('ROLE:', role);
+      console.log('TOKEN:', token);
+      console.log('=================================');
+
+      // ========== SAVE TOKEN ==========
+      if (!token) {
+        Alert.alert(
+          'Login error',
+          'Token not received from server. Please contact support.',
+        );
+        return;
+      }
+
+      await AsyncStorage.setItem('auth_token', token);
+      console.log('✅ Token saved to AsyncStorage');
+
+      // ========== ROLE CHECK + NAVIGATE ==========
+      if (
+        role === 'organizer' ||
+        role === 'manager' ||
+        role === 'admin'
+      ) {
+        console.log('MANAGER ROLE MATCHED → Dashboard');
+        navigation.replace('Dashboard');
+      } else {
+        console.log('ROLE NOT MATCHED:', role);
+        Alert.alert(
+          'Access Denied',
+          `Only manager accounts can login.\nCurrent role: ${role}`,
+        );
+      }
+    } catch (error) {
+      console.error('[Login] Network error:', error);
+
+      const msg =
+        'Cannot reach server. Check your internet and try again.';
+
+      setPasswordError(msg);
+      Alert.alert('Network error', msg);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   // =========================
@@ -75,7 +170,6 @@ const LoginScreen = ({navigation}) => {
   // =========================
 
   const handleGoogleLogin = () => {
-    // TEMPORARY GOOGLE LOGIN
     navigation.replace('Dashboard');
   };
 
@@ -84,7 +178,6 @@ const LoginScreen = ({navigation}) => {
   // =========================
 
   const handleAppleLogin = () => {
-    // TEMPORARY APPLE LOGIN
     navigation.replace('OtpScreen');
   };
 
@@ -95,7 +188,7 @@ const LoginScreen = ({navigation}) => {
   const isFormValid =
     email.trim().length > 0 &&
     validateEmail(email.trim()) &&
-    password.length >= 6;
+    password.length >= 8;
 
   // =========================
   // UI
@@ -105,7 +198,6 @@ const LoginScreen = ({navigation}) => {
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={styles.container}>
-
       <StatusBar
         barStyle="light-content"
         backgroundColor={COLORS.background}
@@ -118,7 +210,6 @@ const LoginScreen = ({navigation}) => {
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}>
-
         {/* BRAND */}
 
         <View style={styles.brandRow}>
@@ -126,21 +217,15 @@ const LoginScreen = ({navigation}) => {
             <Text style={styles.brandMarkText}>U</Text>
           </View>
 
-          <Text style={styles.brandName}>
-            {CONFIG.APP_NAME}
-          </Text>
+          <Text style={styles.brandName}>{CONFIG.APP_NAME}</Text>
         </View>
 
         {/* HEADING */}
 
         <View style={styles.headingBlock}>
-          <Text style={styles.eyebrow}>
-            EVENT MANAGER
-          </Text>
+          <Text style={styles.eyebrow}>EVENT MANAGER</Text>
 
-          <Text style={styles.title}>
-            Welcome back.
-          </Text>
+          <Text style={styles.title}>Welcome back.</Text>
 
           <Text style={styles.description}>
             Sign in to keep your events moving.
@@ -150,12 +235,9 @@ const LoginScreen = ({navigation}) => {
         {/* FORM */}
 
         <View style={styles.form}>
-
           {/* EMAIL */}
 
-          <Text style={styles.label}>
-            EMAIL ADDRESS
-          </Text>
+          <Text style={styles.label}>EMAIL ADDRESS</Text>
 
           <TextInput
             autoCapitalize="none"
@@ -163,10 +245,7 @@ const LoginScreen = ({navigation}) => {
             keyboardType="email-address"
             onChangeText={value => {
               setEmail(value);
-
-              if (emailError) {
-                setEmailError('');
-              }
+              if (emailError) setEmailError('');
             }}
             onBlur={() => {
               if (!email.trim()) {
@@ -177,33 +256,24 @@ const LoginScreen = ({navigation}) => {
             }}
             placeholder="you@company.com"
             placeholderTextColor={COLORS.textMuted}
-            style={[
-              styles.input,
-              emailError && styles.inputError,
-            ]}
+            style={[styles.input, emailError && styles.inputError]}
             value={email}
           />
 
           {emailError ? (
-            <Text style={styles.errorText}>
-              {emailError}
-            </Text>
+            <Text style={styles.errorText}>{emailError}</Text>
           ) : null}
 
           {/* PASSWORD LABEL */}
 
           <View style={styles.passwordLabelRow}>
-            <Text style={styles.label}>
-              PASSWORD
-            </Text>
+            <Text style={styles.label}>PASSWORD</Text>
 
             <Pressable
               onPress={() =>
                 navigation.navigate('ForgotPasswordScreen')
               }>
-              <Text style={styles.link}>
-                Forgot password?
-              </Text>
+              <Text style={styles.link}>Forgot password?</Text>
             </Pressable>
           </View>
 
@@ -214,23 +284,19 @@ const LoginScreen = ({navigation}) => {
               styles.passwordInputWrap,
               passwordError && styles.inputError,
             ]}>
-
             <TextInput
               autoCapitalize="none"
               autoComplete="password"
               onChangeText={value => {
                 setPassword(value);
-
-                if (passwordError) {
-                  setPasswordError('');
-                }
+                if (passwordError) setPasswordError('');
               }}
               onBlur={() => {
                 if (!password) {
                   setPasswordError('Password is required');
-                } else if (password.length < 6) {
+                } else if (password.length < 8) {
                   setPasswordError(
-                    'Password must be at least 6 characters',
+                    'Password must be at least 8 characters',
                   );
                 }
               }}
@@ -243,65 +309,59 @@ const LoginScreen = ({navigation}) => {
 
             <Pressable
               accessibilityLabel={
-                showPassword
-                  ? 'Hide password'
-                  : 'Show password'
+                showPassword ? 'Hide password' : 'Show password'
               }
               onPress={() =>
                 setShowPassword(current => !current)
               }
               style={styles.visibilityButton}>
-
               <Text style={styles.visibilityText}>
                 {showPassword ? 'HIDE' : 'SHOW'}
               </Text>
-
             </Pressable>
           </View>
 
           {passwordError ? (
-            <Text style={styles.errorText}>
-              {passwordError}
-            </Text>
+            <Text style={styles.errorText}>{passwordError}</Text>
           ) : null}
 
           {/* SIGN IN */}
 
           <Pressable
-            disabled={!isFormValid}
+            disabled={!isFormValid || submitting}
             onPress={handleLogin}
             style={[
               styles.submitButton,
-              !isFormValid && styles.submitButtonDisabled,
+              (!isFormValid || submitting) &&
+                styles.submitButtonDisabled,
             ]}>
-
             <Text
               style={[
                 styles.submitText,
-                !isFormValid && styles.submitTextDisabled,
+                (!isFormValid || submitting) &&
+                  styles.submitTextDisabled,
               ]}>
-              Sign in
+              {submitting ? 'Signing in…' : 'Sign in'}
             </Text>
 
-            <Text
-              style={[
-                styles.submitArrow,
-                !isFormValid && styles.submitTextDisabled,
-              ]}>
-              →
-            </Text>
-
+            {!submitting && (
+              <Text
+                style={[
+                  styles.submitArrow,
+                  !isFormValid && styles.submitTextDisabled,
+                ]}>
+                →
+              </Text>
+            )}
           </Pressable>
 
           {/* DIVIDER */}
 
           <View style={styles.socialDivider}>
             <View style={styles.dividerLine} />
-
             <Text style={styles.dividerText}>
               OR CONTINUE WITH
             </Text>
-
             <View style={styles.dividerLine} />
           </View>
 
@@ -310,17 +370,12 @@ const LoginScreen = ({navigation}) => {
           <Pressable
             onPress={handleGoogleLogin}
             style={styles.socialButton}>
-
             <View style={styles.googleIcon}>
-              <Text style={styles.googleIconText}>
-                G
-              </Text>
+              <Text style={styles.googleIconText}>G</Text>
             </View>
-
             <Text style={styles.socialButtonText}>
               Continue with Google
             </Text>
-
           </Pressable>
 
           {/* APPLE */}
@@ -329,18 +384,12 @@ const LoginScreen = ({navigation}) => {
             <Pressable
               onPress={handleAppleLogin}
               style={styles.socialButton}>
-
-              <Text style={styles.appleIcon}>
-                ●
-              </Text>
-
+              <Text style={styles.appleIcon}>●</Text>
               <Text style={styles.socialButtonText}>
                 Continue with Apple
               </Text>
-
             </Pressable>
           )}
-
         </View>
 
         {/* FOOTER */}
@@ -351,17 +400,12 @@ const LoginScreen = ({navigation}) => {
           </Text>
 
           <Pressable
-            onPress={() =>
-              navigation.navigate('OtpScreen')
-            }>
-
+            onPress={() => navigation.navigate('RegisterScreen')}>
             <Text style={styles.link}>
-              Contact your administrator
+              Register your account
             </Text>
-
           </Pressable>
         </View>
-
       </ScrollView>
     </KeyboardAvoidingView>
   );
